@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapa Climático - ClimateNews AI</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+    <header>
+        <h1>🌍 ClimateNews AI</h1>
+        <nav>
+            <a href="/">Inicio</a>
+            <a href="/dashboard">Dashboard</a>
+            <a href="/map" class="active">Mapa Climático</a>
+        </nav>
+    </header>
+
+    <main>
+        <section class="map-section">
+            <h2>Mapa Climático Interactivo del Mundo</h2>
+            <p class="map-instructions">
+                🖱️ Haz clic en cualquier lugar del mapa para ver el clima detallado de esa ubicación
+            </p>
+
+            <div class="map-container">
+                <div id="world-map"></div>
+            </div>
+
+            <div id="weather-info" class="weather-info hidden">
+                <div class="weather-header">
+                    <h3 id="location-name">Ubicación</h3>
+                    <button id="close-weather" class="close-btn">✕</button>
+                </div>
+                <div class="weather-content">
+                    <div class="weather-main">
+                        <div class="temperature" id="current-temp">--°C</div>
+                        <div class="condition" id="weather-condition">--</div>
+                        <img id="weather-icon" src="" alt="Weather icon" class="weather-icon">
+                    </div>
+                    <div class="weather-details">
+                        <div class="detail-item">
+                            <span class="detail-label">Sensación Térmica</span>
+                            <span class="detail-value" id="feels-like">--°C</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Humedad</span>
+                            <span class="detail-value" id="humidity">--%</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Viento</span>
+                            <span class="detail-value" id="wind-speed">-- km/h</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Dirección</span>
+                            <span class="detail-value" id="wind-dir">--</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Presión</span>
+                            <span class="detail-value" id="pressure">-- hPa</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Visibilidad</span>
+                            <span class="detail-value" id="visibility">-- km</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">UV Index</span>
+                            <span class="detail-value" id="uv-index">--</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Calidad del Aire (AQI)</span>
+                            <span class="detail-value" id="aqi">--</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">🌅 Amanecer</span>
+                            <span class="detail-value" id="sunrise">--</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">🌇 Atardecer</span>
+                            <span class="detail-value" id="sunset">--</span>
+                        </div>
+                    </div>
+                    <div class="forecast-section">
+                        <h4>Pronóstico para los próximos días</h4>
+                        <div id="forecast-container" class="forecast-container">
+                            <p>Cargando pronóstico...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>&copy; 2026 ClimateNews AI - Hackathon</p>
+    </footer>
+
+    <script>
+        // Evitar inicialización múltiple del mapa
+        let mapInitialized = false;
+        let map = null;
+        let currentMarker = null;
+
+        // Inicializar el mapa solo una vez
+        function initMap() {
+            if (mapInitialized) return;
+
+            map = L.map('world-map', {
+                center: [20, 0],
+                zoom: 2,
+                minZoom: 2,
+                maxZoom: 18,
+                worldCopyJump: false,  // Evitar que el mapa se repita
+                noWrap: true  // Evitar que el mapa se repita horizontalmente
+            });
+
+            // Agregar capa del mapa (OpenStreetMap)
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 19,
+                noWrap: true  // Evitar repetición
+            }).addTo(map);
+
+            // Manejar clic en el mapa (DESPUES de inicializar)
+            map.on('click', async function(e) {
+                const lat = e.latlng.lat;
+                const lon = e.latlng.lng;
+
+                // Validar coordenadas (lat: -90 a 90, lon: -180 a 180)
+                if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+                    showError('Coordenadas inválidas');
+                    return;
+                }
+
+                // Remover marcador anterior si existe
+                if (currentMarker) {
+                    map.removeLayer(currentMarker);
+                }
+
+                // Agregar nuevo marcador
+                currentMarker = L.marker([lat, lon]).addTo(map);
+
+                // Mostrar información de carga
+                showLoading();
+
+                // Obtener clima actual
+                await fetchWeather(lat, lon);
+            });
+
+            mapInitialized = true;
+        }
+
+        // Inicializar mapa cuando el DOM esté listo
+        document.addEventListener('DOMContentLoaded', initMap);
+
+        async function fetchWeather(lat, lon) {
+            try {
+                // Obtener forecast para tener amanecer y atardecer
+                const response = await fetch(`/api/weather/forecast?lat=${lat}&lon=${lon}&days=1`);
+                const data = await response.json();
+
+                if (data.error) {
+                    showError(data.error);
+                    return;
+                }
+
+                // Actualizar UI con datos del clima
+                updateWeatherInfo(data);
+
+                // Obtener pronóstico extendido
+                await fetchForecast(lat, lon);
+
+            } catch (error) {
+                console.error('Error fetching weather:', error);
+                showError('Error al obtener datos del clima');
+            }
+        }
+
+        async function fetchForecast(lat, lon) {
+            try {
+                const response = await fetch(`/api/weather/forecast?lat=${lat}&lon=${lon}&days=3`);
+                const data = await response.json();
+
+                if (data.error) {
+                    document.getElementById('forecast-container').innerHTML = '<p>No se pudo cargar el pronóstico</p>';
+                    return;
+                }
+
+                updateForecast(data.forecast.forecastday);
+
+            } catch (error) {
+                console.error('Error fetching forecast:', error);
+                document.getElementById('forecast-container').innerHTML = '<p>Error al cargar el pronóstico</p>';
+            }
+        }
+
+        function updateWeatherInfo(data) {
+            const location = data.location;
+            const current = data.current;
+            const astro = data.forecast.forecastday[0].astro;
+
+            document.getElementById('location-name').textContent = `${location.name}, ${location.country}`;
+            document.getElementById('current-temp').textContent = `${current.temp_c}°C`;
+            document.getElementById('weather-condition').textContent = current.condition.text;
+            document.getElementById('weather-icon').src = `https:${current.condition.icon}`;
+            document.getElementById('feels-like').textContent = `${current.feelslike_c}°C`;
+            document.getElementById('humidity').textContent = `${current.humidity}%`;
+            document.getElementById('wind-speed').textContent = `${current.wind_kph} km/h`;
+            document.getElementById('wind-dir').textContent = getWindDirection(current.wind_degree);
+            document.getElementById('pressure').textContent = `${current.pressure_mb} hPa`;
+            document.getElementById('visibility').textContent = `${current.vis_km} km`;
+            document.getElementById('uv-index').textContent = current.uv;
+
+            // Calidad del aire si está disponible
+            if (current.air_quality) {
+                const aqi = current.air_quality['us-epa-index'];
+                document.getElementById('aqi').textContent = getAQIDescription(aqi);
+            } else {
+                document.getElementById('aqi').textContent = 'No disponible';
+            }
+
+            // Amanecer y atardecer
+            document.getElementById('sunrise').textContent = astro.sunrise;
+            document.getElementById('sunset').textContent = astro.sunset;
+
+            // Mostrar panel de información
+            document.getElementById('weather-info').classList.remove('hidden');
+        }
+
+        function updateForecast(forecastDays) {
+            const container = document.getElementById('forecast-container');
+            container.innerHTML = forecastDays.map(day => `
+                <div class="forecast-day">
+                    <div class="forecast-date">${formatDate(day.date)}</div>
+                    <img src="https:${day.day.condition.icon}" alt="${day.day.condition.text}" class="forecast-icon">
+                    <div class="forecast-temp">
+                        <span class="max">${day.day.maxtemp_c}°</span>
+                        <span class="min">${day.day.mintemp_c}°</span>
+                    </div>
+                    <div class="forecast-condition">${day.day.condition.text}</div>
+                    <div class="forecast-details">
+                        <span>💧 ${day.day.daily_chance_of_rain}%</span>
+                        <span>💨 ${day.day.maxwind_kph} km/h</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function showLoading() {
+            document.getElementById('location-name').textContent = 'Cargando...';
+            document.getElementById('current-temp').textContent = '--°C';
+            document.getElementById('weather-condition').textContent = '--';
+            document.getElementById('weather-icon').src = '';
+            document.getElementById('weather-info').classList.remove('hidden');
+        }
+
+        function showError(message) {
+            document.getElementById('location-name').textContent = '⚠️ Ubicación no disponible';
+            document.getElementById('current-temp').textContent = '--°C';
+            document.getElementById('weather-condition').textContent = message + ' Intenta hacer clic en una ciudad o área poblada.';
+            document.getElementById('weather-icon').src = '';
+            document.getElementById('weather-info').classList.remove('hidden');
+
+            // Ocultar pronóstico cuando hay error
+            document.getElementById('forecast-container').innerHTML = '<p>No disponible</p>';
+        }
+
+        function getWindDirection(degrees) {
+            const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+            const index = Math.round(degrees / 45) % 8;
+            return directions[index];
+        }
+
+        function getAQIDescription(aqi) {
+            if (aqi <= 50) return `${aqi} - Buena`;
+            if (aqi <= 100) return `${aqi} - Moderada`;
+            if (aqi <= 150) return `${aqi} - Insalubre para grupos sensibles`;
+            if (aqi <= 200) return `${aqi} - Insalubre`;
+            if (aqi <= 300) return `${aqi} - Muy insalubre`;
+            return `${aqi} - Peligrosa`;
+        }
+
+        function formatDate(dateStr) {
+            const date = new Date(dateStr);
+            const options = { weekday: 'short', month: 'short', day: 'numeric' };
+            return date.toLocaleDateString('es-ES', options);
+        }
+
+        // Cerrar panel de información
+        document.getElementById('close-weather').addEventListener('click', function() {
+            document.getElementById('weather-info').classList.add('hidden');
+            if (currentMarker) {
+                map.removeLayer(currentMarker);
+                currentMarker = null;
+            }
+        });
+    </script>
+</body>
+</html>

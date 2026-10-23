@@ -1,0 +1,35 @@
+# Variables de entorno (contiene API keys)
+.env
+
+# Entorno virtual
+venv/
+.venv/
+__pycache__/
+
+# Base de datos local
+climate_news.db
+*.db
+*.sqlite
+*.sqlite3
+
+# Archivos de macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Archivos de Python
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
